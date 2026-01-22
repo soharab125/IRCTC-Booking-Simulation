@@ -7,34 +7,7 @@ const FullstackDocs = () => {
 
   const backendSetup = `# Backend Setup (Node.js + Express + SQLite)
 
-## 1. Initialize Project
-mkdir irctc-backend
-cd irctc-backend
-npm init -y
 
-## 2. Install Dependencies
-npm install express cors jsonwebtoken bcryptjs sqlite3
-
-## 3. Create server.js (see Backend code section)
-
-## 4. Run Server
-node server.js
-# Server runs on http://localhost:5000`;
-
-  const frontendSetup = `# Frontend Setup (React)
-
-## 1. Create React App
-npx create-react-app irctc-frontend
-cd irctc-frontend
-
-## 2. Install Dependencies
-npm install lucide-react
-
-## 3. Replace src/App.js with frontend code
-
-## 4. Run Frontend
-npm start
-# App runs on http://localhost:3000`;
 
   const apiEndpoints = [
     { method: 'POST', endpoint: '/api/auth/signup', desc: 'Register new user', body: '{ email, password, name, phone }' },
