@@ -1,1 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRCTC - Indian Railway Ticket Booking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .card { transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="app"></div>
 
+    <script>
+        const DB_NAME = 'IRCTC_DB';
+        let db;
+
+        function initDB() {
+            return new Promise((resolve) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve(db);
+                };
+
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+
+                    if (!db.objectStoreNames.contains('users')) {
+                        db.createObjectStore('users', { keyPath: 'email' });
+                    }
+                    if (!db.objectStoreNames.contains('trains')) {
+                        const trainStore = db.createObjectStore('trains', { keyPath: 'id', autoIncrement: true });
+                        
+                        trainStore.transaction.oncomplete = () => {
+                            const tx = db.transaction('trains', 'readwrite');
+                            const store = tx.objectStore('trains');
+                            [
+                                { trainNumber: '12301', trainName: 'Rajdhani Express', source: 'New Delhi', destination: 'Howrah', departureTime: '16:55', arrivalTime: '10:05', sleeperPrice: 250, ac3Price: 650, ac2Price: 950, ac1Price: 1500 },
+                                { trainNumber: '12951', trainName: 'Mumbai Rajdhani', source: 'Mumbai', destination: 'New Delhi', departureTime: '16:25', arrivalTime: '08:35', sleeperPrice: 300, ac3Price: 700, ac2Price: 1000, ac1Price: 1600 },
+                                { trainNumber: '12621', trainName: 'Tamil Nadu Express', source: 'New Delhi', destination: 'Chennai', departureTime: '22:30', arrivalTime: '07:20', sleeperPrice: 200, ac3Price: 550, ac2Price: 850, ac1Price: 1400 }
+                            ].forEach(t => store.add(t));
+                        };
+                    }
+                    if (!db.objectStoreNames.contains('bookings')) {
+                        db.createObjectStore('bookings', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!db.objectStoreNames.contains('passengers')) {
+                        db.createObjectStore('passengers', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!db.objectStoreNames.contains('payments')) {
+                        db.createObjectStore('payments', { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+            });
+        }
+
+        const state = {
+            currentUser: null,
+            currentPage: 'login',
+            trains: [],
+            bookings: [],
+            passengers: [],
+            payments: [],
+            selectedTrain: null,
+            searchForm: { source: '', destination: '', date: '' },
+            bookingPassengers: [{ name: '', age: '', gender: 'Male', berth: 'Lower' }],
+            selectedClass: 'sleeper',
+            message: ''
+        };
+
+        function dbOp(store, mode, fn) {
+            return new Promise((resolve) => {
+                const tx = db.transaction([store], mode);
+                const req = fn(tx.objectStore(store));
+                req.onsuccess = () => resolve(req.result);
+            });
+        }
+
+        async function handleSignup(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const user = { email: fd.get('email'), password: fd.get('password'), name: fd.get('name'), phone: fd.get('phone') };
+            
+            try {
+                await dbOp('users', 'readwrite', s => s.add(user));
+                state.currentUser = user;
+                localStorage.setItem('user', JSON.stringify(user));
+                state.currentPage = 'search';
+                showMsg('Signup successful!');
+            } catch {
+                showMsg('Email exists!', 'error');
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const user = await dbOp('users', 'readonly', s => s.get(fd.get('email')));
+            
+            if (user && user.password === fd.get('password')) {
+                state.currentUser = user;
+                localStorage.setItem('user', JSON.stringify(user));
+                state.currentPage = 'search';
+                await loadData();
+                showMsg('Login successful!');
+            } else {
+                showMsg('Invalid credentials!', 'error');
+            }
+        }
+
+        function logout() {
+            state.currentUser = null;
+            localStorage.removeItem('user');
+            state.currentPage = 'login';
+            render();
+        }
+
+        async function loadData() {
+            const bookings = await dbOp('bookings', 'readonly', s => s.getAll());
+            state.bookings = bookings.filter(b => b.email === state.currentUser.email);
+            
+            const passengers = await dbOp('passengers', 'readonly', s => s.getAll());
+            state.passengers = passengers.filter(p => p.email === state.currentUser.email);
+            
+            const payments = await dbOp('payments', 'readonly', s => s.getAll());
+            state.payments = payments.filter(p => p.email === state.currentUser.email);
+        }
+
+        async function searchTrains(e) {
+            e.preventDefault();
+            const all = await dbOp('trains', 'readonly', s => s.getAll());
+            state.trains = all.filter(t => 
+                t.source.toLowerCase().includes((state.searchForm.source || '').toLowerCase()) &&
+                t.destination.toLowerCase().includes((state.searchForm.destination || '').toLowerCase())
+            );
+            render();
+        }
+
+        async function book(e) {
+            e.preventDefault();
+            
+            if (!state.selectedTrain || state.bookingPassengers.some(p => !p.name || !p.age)) {
+                return showMsg('Fill all details!', 'error');
+            }
+
+            if (state.payments.length === 0) {
+                state.currentPage = 'payment';
+                return showMsg('Add payment method first!', 'error');
+            }
+
+            const price = state.selectedTrain[state.selectedClass + 'Price'];
+            const booking = {
+                email: state.currentUser.email,
+                trainId: state.selectedTrain.id,
+                trainName: state.selectedTrain.trainName,
+                trainNumber: state.selectedTrain.trainNumber,
+                source: state.selectedTrain.source,
+                destination: state.selectedTrain.destination,
+                date: state.searchForm.date,
+                class: state.selectedClass,
+                passengers: [...state.bookingPassengers],
+                fare: price * state.bookingPassengers.length,
+                pnr: 'PNR' + Date.now(),
+                status: 'Confirmed'
+            };
+
+            await dbOp('bookings', 'readwrite', s => s.add(booking));
+            
+            showMsg(`Booked! PNR: ${booking.pnr}`);
+            state.currentPage = 'bookings';
+            state.selectedTrain = null;
+            state.bookingPassengers = [{ name: '', age: '', gender: 'Male', berth: 'Lower' }];
+            await loadData();
+        }
+
+        async function cancel(id) {
+            const booking = await dbOp('bookings', 'readwrite', s => s.get(id));
+            booking.status = 'Cancelled';
+            await dbOp('bookings', 'readwrite', s => s.put(booking));
+            showMsg('Booking cancelled!');
+            await loadData();
+        }
+
+        async function addPass(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            await dbOp('passengers', 'readwrite', s => s.add({
+                email: state.currentUser.email,
+                name: fd.get('name'),
+                age: parseInt(fd.get('age')),
+                gender: fd.get('gender')
+            }));
+            await loadData();
+            showMsg('Passenger added!');
+            e.target.reset();
+        }
+
+        async function delPass(id) {
+            await dbOp('passengers', 'readwrite', s => s.delete(id));
+            await loadData();
+            showMsg('Passenger removed!');
+        }
+
+        async function addPay(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            await dbOp('payments', 'readwrite', s => s.add({
+                email: state.currentUser.email,
+                type: fd.get('type'),
+                cardNumber: fd.get('cardNumber') || '',
+                cardHolder: fd.get('cardHolder') || '',
+                expiry: fd.get('expiry') || '',
+                upiId: fd.get('upiId') || ''
+            }));
+            await loadData();
+            showMsg('Payment added!');
+            e.target.reset();
+        }
+
+        async function delPay(id) {
+            await dbOp('payments', 'readwrite', s => s.delete(id));
+            await loadData();
+            showMsg('Payment removed!');
+        }
+
+        function showMsg(text, type = 'success') {
+            state.message = { text, type };
+            render();
+            setTimeout(() => { state.message = ''; render(); }, 3000);
+        }
+
+        function render() {
+            document.getElementById('app').innerHTML = state.currentUser ? renderApp() : renderAuth();
+        }
+
+        function renderAuth() {
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+                        <div class="flex items-center justify-center mb-6">
+                            <svg class="w-12 h-12 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                            <h1 class="text-3xl font-bold">IRCTC</h1>
+                        </div>
+
+                        ${state.message ? `<div class="mb-4 p-3 rounded ${state.message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${state.message.text}</div>` : ''}
+
+                        <div class="flex mb-6 border-b">
+                            <button onclick="state.currentPage='login'; render();" class="flex-1 py-2 ${state.currentPage === 'login' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600'}">Login</button>
+                            <button onclick="state.currentPage='signup'; render();" class="flex-1 py-2 ${state.currentPage === 'signup' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600'}">Signup</button>
+                        </div>
+
+                        ${state.currentPage === 'login' ? `
+                            <form onsubmit="handleLogin(event)" class="space-y-4">
+                                <input name="email" type="email" placeholder="Email" required class="w-full px-4 py-3 border rounded-lg">
+                                <input name="password" type="password" placeholder="Password" required class="w-full px-4 py-3 border rounded-lg">
+                                <button class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold">Login</button>
+                            </form>
+                        ` : `
+                            <form onsubmit="handleSignup(event)" class="space-y-4">
+                                <input name="name" placeholder="Name" required class="w-full px-4 py-3 border rounded-lg">
+                                <input name="email" type="email" placeholder="Email" required class="w-full px-4 py-3 border rounded-lg">
+                                <input name="phone" placeholder="Phone" required class="w-full px-4 py-3 border rounded-lg">
+                                <input name="password" type="password" placeholder="Password" required class="w-full px-4 py-3 border rounded-lg">
+                                <button class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold">Signup</button>
+                            </form>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderApp() {
+            return `
+                <nav class="bg-blue-600 text-white p-4 shadow-lg">
+                    <div class="container mx-auto flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            <span class="text-xl font-bold">IRCTC</span>
+                        </div>
+                        <div class="flex gap-4 items-center">
+                            <span>Welcome, ${state.currentUser.name}</span>
+                            <button onclick="logout()" class="bg-blue-700 px-4 py-2 rounded hover:bg-blue-800">Logout</button>
+                        </div>
+                    </div>
+                </nav>
+
+                <div class="container mx-auto p-4 flex gap-4">
+                    <div class="w-64 bg-white rounded-lg shadow-lg p-4 h-fit">
+                        ${['search', 'profile', 'passengers', 'payment', 'bookings'].map(p => `
+                            <button onclick="state.currentPage='${p}'; render();" class="w-full text-left p-3 rounded mb-2 ${state.currentPage === p ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}">${p.charAt(0).toUpperCase() + p.slice(1)}</button>
+                        `).join('')}
+                    </div>
+
+                    <div class="flex-1">
+                        ${state.message ? `<div class="mb-4 p-4 rounded ${state.message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${state.message.text}</div>` : ''}
+                        ${renderPage()}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPage() {
+            if (state.currentPage === 'search') return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">Search Trains</h2>
+                    <form onsubmit="searchTrains(event)" class="mb-6">
+                        <div class="grid md:grid-cols-4 gap-4">
+                            <input placeholder="From" oninput="state.searchForm.source=this.value" class="px-4 py-2 border rounded-lg">
+                            <input placeholder="To" oninput="state.searchForm.destination=this.value" class="px-4 py-2 border rounded-lg">
+                            <input type="date" oninput="state.searchForm.date=this.value" required class="px-4 py-2 border rounded-lg">
+                            <button class="bg-blue-600 text-white rounded-lg hover:bg-blue-700">Search</button>
+                        </div>
+                    </form>
+                    <div class="space-y-4">
+                        ${state.trains.map(t => `
+                            <div class="card border rounded-lg p-4">
+                                <div class="flex justify-between mb-2">
+                                    <div><h3 class="text-xl font-bold">${t.trainName}</h3><p class="text-gray-600">${t.trainNumber}</p></div>
+                                    <button onclick='state.selectedTrain=${JSON.stringify(t)}; state.currentPage="booking"; render();' class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Book</button>
+                                </div>
+                                <div class="flex justify-between mb-3"><div><p class="font-bold">${t.source}</p><p class="text-sm">${t.departureTime}</p></div><div class="text-right"><p class="font-bold">${t.destination}</p><p class="text-sm">${t.arrivalTime}</p></div></div>
+                                <div class="grid grid-cols-4 gap-2">
+                                    ${['sleeper', 'ac3', 'ac2', 'ac1'].map(c => `<div class="text-center p-2 bg-gray-50 rounded"><p class="font-bold">₹${t[c+'Price']}</p><p class="text-sm">${c.toUpperCase()}</p></div>`).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            if (state.currentPage === 'booking' && state.selectedTrain) {
+                const t = state.selectedTrain;
+                return `
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <h2 class="text-2xl font-bold mb-4">Book - ${t.trainName}</h2>
+                        <div class="mb-4 p-4 bg-blue-50 rounded"><p><strong>From:</strong> ${t.source} (${t.departureTime})</p><p><strong>To:</strong> ${t.destination} (${t.arrivalTime})</p><p><strong>Date:</strong> ${state.searchForm.date}</p></div>
+                        <form onsubmit="book(event)">
+                            <select onchange="state.selectedClass=this.value; render();" class="w-full px-4 py-2 border rounded-lg mb-4">
+                                ${['sleeper', 'ac3', 'ac2', 'ac1'].map(c => `<option value="${c}" ${state.selectedClass===c?'selected':''}>${c.toUpperCase()} - ₹${t[c+'Price']}</option>`).join('')}
+                            </select>
+                            <h3 class="font-bold mb-2">Passengers:</h3>
+                            ${state.bookingPassengers.map((p, i) => `
+                                <div class="grid grid-cols-4 gap-2 mb-2">
+                                    <input placeholder="Name" value="${p.name}" oninput="state.bookingPassengers[${i}].name=this.value" required class="px-3 py-2 border rounded">
+                                    <input placeholder="Age" type="number" value="${p.age}" oninput="state.bookingPassengers[${i}].age=this.value" required class="px-3 py-2 border rounded">
+                                    <select onchange="state.bookingPassengers[${i}].gender=this.value" class="px-3 py-2 border rounded">
+                                        <option ${p.gender==='Male'?'selected':''}>Male</option>
+                                        <option ${p.gender==='Female'?'selected':''}>Female</option>
+                                    </select>
+                                    <select onchange="state.bookingPassengers[${i}].berth=this.value" class="px-3 py-2 border rounded">
+                                        <option ${p.berth==='Lower'?'selected':''}>Lower</option>
+                                        <option ${p.berth==='Middle'?'selected':''}>Middle</option>
+                                        <option ${p.berth==='Upper'?'selected':''}>Upper</option>
+                                    </select>
+                                </div>
+                            `).join('')}
+                            <button type="button" onclick="state.bookingPassengers.push({name:'',age:'',gender:'Male',berth:'Lower'}); render();" class="text-blue-600 text-sm mb-4">+ Add Passenger</button>
+                            <div class="mb-4 p-4 bg-green-50 rounded"><p class="text-xl font-bold">Total: ₹${t[state.selectedClass+'Price'] * state.bookingPassengers.length}</p></div>
+                            <button class="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-semibold">Confirm Booking</button>
+                        </form>
+                    </div>
+                `;
+            }
+
+            if (state.currentPage === 'bookings') return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">My Bookings</h2>
+                    ${state.bookings.map(b => `
+                        <div class="border rounded-lg p-4 mb-4">
+                            <div class="flex justify-between mb-2">
+                                <div><h3 class="font-bold">${b.trainName}</h3><p class="text-sm text-gray-600">PNR: ${b.pnr}</p></div>
+                                <span class="px-3 py-1 rounded ${b.status==='Confirmed'?'bg-green-100 text-green-800':'bg-red-100 text-red-800'}">${b.status}</span>
+                            </div>
+                            <p class="text-sm mb-2">${b.source} → ${b.destination} | ${b.date} | ${b.class.toUpperCase()}</p>
+                            <p class="font-semibold mb-2">Passengers:</p>
+                            <ul class="text-sm mb-3">${b.passengers.map(p => `<li>${p.name} (${p.age}yrs, ${p.gender})</li>`).join('')}</ul>
+                            <div class="flex justify-between items-center">
+                                <p class="font-bold">₹${b.fare}</p>
+                                ${b.status==='Confirmed'?`<button onclick="cancel(${b.id})" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Cancel</button>`:''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            if (state.currentPage === 'passengers') return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">Passenger Master List</h2>
+                    <form onsubmit="addPass(event)" class="grid grid-cols-4 gap-2 mb-6">
+                        <input name="name" placeholder="Name" required class="px-3 py-2 border rounded">
+                        <input name="age" type="number" placeholder="Age" required class="px-3 py-2 border rounded">
+                        <select name="gender" class="px-3 py-2 border rounded"><option>Male</option><option>Female</option></select>
+                        <button class="bg-blue-600 text-white rounded hover:bg-blue-700">Add</button>
+                    </form>
+                    ${state.passengers.map(p => `
+                        <div class="flex justify-between items-center p-3 bg-gray-50 rounded mb-2">
+                            <span>${p.name} - ${p.age}yrs, ${p.gender}</span>
+                            <button onclick="delPass(${p.id})" class="text-red-600 hover:text-red-800">Remove</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            if (state.currentPage === 'payment') return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">Payment Methods</h2>
+                    <form onsubmit="addPay(event)" class="mb-6">
+                        <select name="type" onchange="this.form.querySelector('.card-fields').style.display=this.value==='UPI'?'none':'grid'; this.form.querySelector('.upi-field').style.display=this.value==='UPI'?'block':'none';" class="w-full px-4 py-2 border rounded-lg mb-3">
+                            <option value="Card">Debit/Credit Card</option>
+                            <option value="UPI">UPI</option>
+                        </select>
+                        <div class="card-fields grid grid-cols-2 gap-3 mb-3">
+                            <input name="cardNumber" placeholder="Card Number" class="px-3 py-2 border rounded">
+                            <input name="cardHolder" placeholder="Card Holder" class="px-3 py-2 border rounded">
+                            <input name="expiry" placeholder="MM/YY" class="px-3 py-2 border rounded">
+                        </div>
+                        <input name="upiId" placeholder="UPI ID" class="upi-field w-full px-3 py-2 border rounded mb-3" style="display:none">
+                        <button class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Add Payment Method</button>
+                    </form>
+                    ${state.payments.map(p => `
+                        <div class="flex justify-between items-center p-3 bg-gray-50 rounded mb-2">
+                            <span>${p.type}: ${p.type==='UPI'?p.upiId:p.cardNumber}</span>
+                            <button onclick="delPay(${p.id})" class="text-red-600 hover:text-red-800">Remove</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            if (state.currentPage === 'profile') return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">Profile</h2>
+                    <div class="space-y-3"><p><strong>Name:</strong> ${state.currentUser.name}</p><p><strong>Email:</strong> ${state.currentUser.email}</p><p><strong>Phone:</strong> ${state.currentUser.phone}</p></div>
+                </div>
+            `;
+        }
+
+        initDB().then(() => {
+            const stored = localStorage.getItem('user');
+            if (stored) {
+                state.currentUser = JSON.parse(stored);
+                state.currentPage = 'search';
+                loadData();
+            }
+            render();
+        });
+    </script>
+</body>
+</html>
