@@ -1,1 +1,521 @@
 
+import React, { useState, useEffect } from 'react';
+import { Train, User, CreditCard, Users, Search, LogOut, Calendar, CheckCircle, Code, Database, Globe } from 'lucide-react';
+
+const FullstackDocs = () => {
+  const [activeTab, setActiveTab] = useState('overview');
+
+  const backendSetup = `# Backend Setup (Node.js + Express + SQLite)
+
+## 1. Initialize Project
+mkdir irctc-backend
+cd irctc-backend
+npm init -y
+
+## 2. Install Dependencies
+npm install express cors jsonwebtoken bcryptjs sqlite3
+
+## 3. Create server.js (see Backend code section)
+
+## 4. Run Server
+node server.js
+# Server runs on http://localhost:5000`;
+
+  const frontendSetup = `# Frontend Setup (React)
+
+## 1. Create React App
+npx create-react-app irctc-frontend
+cd irctc-frontend
+
+## 2. Install Dependencies
+npm install lucide-react
+
+## 3. Replace src/App.js with frontend code
+
+## 4. Run Frontend
+npm start
+# App runs on http://localhost:3000`;
+
+  const apiEndpoints = [
+    { method: 'POST', endpoint: '/api/auth/signup', desc: 'Register new user', body: '{ email, password, name, phone }' },
+    { method: 'POST', endpoint: '/api/auth/login', desc: 'Login user', body: '{ email, password }' },
+    { method: 'GET', endpoint: '/api/user/profile', desc: 'Get user profile', auth: true },
+    { method: 'PUT', endpoint: '/api/user/profile', desc: 'Update profile', auth: true },
+    { method: 'GET', endpoint: '/api/payment-methods', desc: 'Get payment methods', auth: true },
+    { method: 'POST', endpoint: '/api/payment-methods', desc: 'Add payment method', auth: true },
+    { method: 'GET', endpoint: '/api/passengers', desc: 'Get passenger list', auth: true },
+    { method: 'POST', endpoint: '/api/passengers', desc: 'Add passenger', auth: true },
+    { method: 'GET', endpoint: '/api/trains/search', desc: 'Search trains', params: '?source=&destination=&date=' },
+    { method: 'GET', endpoint: '/api/trains/:id/availability', desc: 'Check availability', params: '?date=&class=' },
+    { method: 'POST', endpoint: '/api/bookings', desc: 'Create booking', auth: true },
+    { method: 'GET', endpoint: '/api/bookings', desc: 'Get user bookings', auth: true },
+    { method: 'PUT', endpoint: '/api/bookings/:id/cancel', desc: 'Cancel booking', auth: true },
+    { method: 'POST', endpoint: '/api/admin/trains', desc: 'Add train route (Admin)', auth: true }
+  ];
+
+  const databaseSchema = `
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  name TEXT NOT NULL,
+  phone TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE payment_methods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  type TEXT NOT NULL,
+  card_number TEXT,
+  card_holder TEXT,
+  expiry TEXT,
+  upi_id TEXT,
+  is_default BOOLEAN DEFAULT 0,
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE passengers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  name TEXT NOT NULL,
+  age INTEGER NOT NULL,
+  gender TEXT NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE trains (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  train_number TEXT UNIQUE NOT NULL,
+  train_name TEXT NOT NULL,
+  source TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  departure_time TEXT NOT NULL,
+  arrival_time TEXT NOT NULL,
+  sleeper_seats INTEGER DEFAULT 72,
+  ac_3tier_seats INTEGER DEFAULT 64,
+  ac_2tier_seats INTEGER DEFAULT 48,
+  ac_1tier_seats INTEGER DEFAULT 24,
+  sleeper_price REAL,
+  ac_3tier_price REAL,
+  ac_2tier_price REAL,
+  ac_1tier_price REAL
+);
+
+CREATE TABLE bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  train_id INTEGER,
+  booking_date DATE NOT NULL,
+  travel_date DATE NOT NULL,
+  class TEXT NOT NULL,
+  quota TEXT DEFAULT 'General',
+  total_fare REAL NOT NULL,
+  status TEXT DEFAULT 'Confirmed',
+  pnr TEXT UNIQUE NOT NULL,
+  payment_method_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id),
+  FOREIGN KEY(train_id) REFERENCES trains(id)
+);
+
+CREATE TABLE booking_passengers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  booking_id INTEGER,
+  name TEXT NOT NULL,
+  age INTEGER NOT NULL,
+  gender TEXT NOT NULL,
+  berth_preference TEXT,
+  seat_number TEXT,
+  FOREIGN KEY(booking_id) REFERENCES bookings(id)
+);`;
+
+  const features = [
+    { title: 'Authentication', items: ['JWT-based auth', 'Password hashing with bcrypt', 'Secure session management'] },
+    { title: 'User Management', items: ['Profile creation & updates', 'Payment method storage', 'Passenger master list'] },
+    { title: 'Train Search', items: ['Source/destination search', 'Date-based filtering', 'Real-time availability'] },
+    { title: 'Booking System', items: ['Multi-passenger booking', 'Class selection', 'PNR generation', 'Seat allocation'] },
+    { title: 'Payment', items: ['Multiple payment methods', 'Card & UPI support', 'Mock payment gateway'] },
+    { title: 'Admin Panel', items: ['Add train routes', 'Manage schedules', 'View all bookings'] }
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-8">
+            <div className="flex items-center gap-4 mb-4">
+              <Train className="w-16 h-16" />
+              <div>
+                <h1 className="text-4xl font-bold">IRCTC Booking System</h1>
+                <p className="text-blue-100 mt-2">Complete Fullstack Application - React + Node.js + SQLite</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-b">
+            <div className="flex overflow-x-auto">
+              {[
+                { id: 'overview', label: 'Overview', icon: Globe },
+                { id: 'features', label: 'Features', icon: CheckCircle },
+                { id: 'api', label: 'API Docs', icon: Code },
+                { id: 'database', label: 'Database', icon: Database },
+                { id: 'setup', label: 'Setup Guide', icon: Train }
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`flex items-center gap-2 px-6 py-4 border-b-2 transition-colors ${
+                    activeTab === id
+                      ? 'border-blue-600 text-blue-600 bg-blue-50'
+                      : 'border-transparent text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="font-semibold whitespace-nowrap">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-8">
+            {activeTab === 'overview' && (
+              <div className="space-y-8">
+                <div>
+                  <h2 className="text-3xl font-bold text-gray-800 mb-4">Project Architecture</h2>
+                  <div className="grid md:grid-cols-3 gap-6">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border-2 border-blue-200">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-lg">
+                          <Globe className="w-8 h-8 text-white" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800">Frontend</h3>
+                      </div>
+                      <ul className="space-y-2 text-gray-700">
+                        <li>• React 18</li>
+                        <li>• Tailwind CSS</li>
+                        <li>• Lucide Icons</li>
+                        <li>• IndexedDB (standalone)</li>
+                        <li>• Responsive Design</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border-2 border-green-200">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="bg-green-600 p-3 rounded-lg">
+                          <Code className="w-8 h-8 text-white" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800">Backend</h3>
+                      </div>
+                      <ul className="space-y-2 text-gray-700">
+                        <li>• Node.js + Express</li>
+                        <li>• JWT Authentication</li>
+                        <li>• bcrypt for passwords</li>
+                        <li>• RESTful API</li>
+                        <li>• CORS enabled</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border-2 border-purple-200">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="bg-purple-600 p-3 rounded-lg">
+                          <Database className="w-8 h-8 text-white" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800">Database</h3>
+                      </div>
+                      <ul className="space-y-2 text-gray-700">
+                        <li>• SQLite</li>
+                        <li>• Relational Schema</li>
+                        <li>• Foreign Keys</li>
+                        <li>• Sample Data</li>
+                        <li>• Auto-increment IDs</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 p-6 rounded-lg">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">Three Implementation Options</h3>
+                  <div className="space-y-3 text-gray-700">
+                    <p><strong>1. Backend Only:</strong> Node.js API server with SQLite database. Use with any frontend (React, Vue, Angular, mobile apps).</p>
+                    <p><strong>2. Frontend Only:</strong> Standalone React app with IndexedDB. No server needed, runs entirely in browser.</p>
+                    <p><strong>3. Fullstack:</strong> Complete application with React frontend communicating with Node.js backend via REST API.</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Project Structure</h3>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="bg-gray-50 p-6 rounded-xl border-2 border-gray-200 font-mono text-sm">
+                      <div className="font-bold text-gray-800 mb-3">Backend Structure:</div>
+                      <pre className="text-gray-700">
+{`irctc-backend/
+├── server.js
+├── package.json
+├── irctc.db (auto-generated)
+└── node_modules/`}
+                      </pre>
+                    </div>
+                    <div className="bg-gray-50 p-6 rounded-xl border-2 border-gray-200 font-mono text-sm">
+                      <div className="font-bold text-gray-800 mb-3">Frontend Structure:</div>
+                      <pre className="text-gray-700">
+{`irctc-frontend/
+├── src/
+│   ├── App.js
+│   └── index.js
+├── public/
+├── package.json
+└── node_modules/`}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'features' && (
+              <div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-6">Complete Feature List</h2>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {features.map((feature, idx) => (
+                    <div key={idx} className="bg-gradient-to-br from-gray-50 to-white p-6 rounded-xl border-2 border-gray-200 hover:shadow-lg transition-shadow">
+                      <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <CheckCircle className="w-6 h-6 text-green-600" />
+                        {feature.title}
+                      </h3>
+                      <ul className="space-y-2">
+                        {feature.items.map((item, i) => (
+                          <li key={i} className="text-gray-700 flex items-start gap-2">
+                            <span className="text-blue-600 font-bold">→</span>
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-8 bg-blue-50 border-l-4 border-blue-600 p-6 rounded-lg">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">User Workflows</h3>
+                  <div className="space-y-4 text-gray-700">
+                    <div>
+                      <strong className="text-blue-600">1. Registration & Login:</strong>
+                      <p>User signs up → Email validation → Password hashing → JWT token generated → Auto-login</p>
+                    </div>
+                    <div>
+                      <strong className="text-blue-600">2. Train Search & Booking:</strong>
+                      <p>Search trains → Select train → Choose class → Add passengers → Select payment → Confirm booking → Receive PNR</p>
+                    </div>
+                    <div>
+                      <strong className="text-blue-600">3. Manage Profile:</strong>
+                      <p>Update profile → Add payment methods → Save frequent passengers → View booking history</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'api' && (
+              <div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-6">API Documentation</h2>
+                
+                <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                  <p className="text-gray-800"><strong>Base URL:</strong> http://localhost:5000</p>
+                  <p className="text-gray-700 mt-2"><strong>Authentication:</strong> Include JWT token in Authorization header: <code className="bg-yellow-100 px-2 py-1 rounded">Bearer &lt;token&gt;</code></p>
+                </div>
+
+                <div className="space-y-3">
+                  {apiEndpoints.map((endpoint, idx) => (
+                    <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-3 py-1 rounded font-bold text-sm ${
+                            endpoint.method === 'GET' ? 'bg-blue-100 text-blue-800' :
+                            endpoint.method === 'POST' ? 'bg-green-100 text-green-800' :
+                            endpoint.method === 'PUT' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {endpoint.method}
+                          </span>
+                          <code className="text-gray-800 font-mono">{endpoint.endpoint}</code>
+                        </div>
+                        {endpoint.auth && (
+                          <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-semibold">AUTH</span>
+                        )}
+                      </div>
+                      <p className="text-gray-700 mb-2">{endpoint.desc}</p>
+                      {endpoint.params && (
+                        <p className="text-sm text-gray-600">Query params: <code className="bg-gray-200 px-2 py-1 rounded">{endpoint.params}</code></p>
+                      )}
+                      {endpoint.body && (
+                        <p className="text-sm text-gray-600">Request body: <code className="bg-gray-200 px-2 py-1 rounded">{endpoint.body}</code></p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-8 bg-green-50 border-l-4 border-green-600 p-6 rounded-lg">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">Example API Call</h3>
+                  <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
+{`// Login Request
+fetch('http://localhost:5000/api/auth/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'password123'
+  })
+})
+.then(res => res.json())
+.then(data => {
+  localStorage.setItem('token', data.token);
+  console.log('Logged in:', data.user);
+});
+
+// Authenticated Request
+fetch('http://localhost:5000/api/bookings', {
+  headers: {
+    'Authorization': 'Bearer ' + localStorage.getItem('token')
+  }
+})
+.then(res => res.json())
+.then(bookings => console.log(bookings));`}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'database' && (
+              <div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-6">Database Schema</h2>
+                
+                <div className="mb-6 bg-purple-50 border-l-4 border-purple-600 p-4 rounded">
+                  <p className="text-gray-800"><strong>Database:</strong> SQLite (irctc.db)</p>
+                  <p className="text-gray-700 mt-2">Lightweight, serverless, zero-configuration SQL database perfect for small to medium applications.</p>
+                </div>
+
+                <pre className="bg-gray-900 text-gray-100 p-6 rounded-lg overflow-x-auto text-sm mb-6">
+                  <code>{databaseSchema}</code>
+                </pre>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
+                    <h3 className="text-lg font-bold text-gray-800 mb-3">Key Relationships</h3>
+                    <ul className="space-y-2 text-gray-700 text-sm">
+                      <li>• users ↔ payment_methods (One-to-Many)</li>
+                      <li>• users ↔ passengers (One-to-Many)</li>
+                      <li>• users ↔ bookings (One-to-Many)</li>
+                      <li>• trains ↔ bookings (One-to-Many)</li>
+                      <li>• bookings ↔ booking_passengers (One-to-Many)</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-green-50 p-6 rounded-xl border-2 border-green-200">
+                    <h3 className="text-lg font-bold text-gray-800 mb-3">Sample Train Data</h3>
+                    <p className="text-gray-700 text-sm mb-3">Database auto-populates with 5 sample trains:</p>
+                    <ul className="space-y-1 text-gray-700 text-sm">
+                      <li>• 12301 - Rajdhani Express</li>
+                      <li>• 12951 - Mumbai Rajdhani</li>
+                      <li>• 12621 - Tamil Nadu Express</li>
+                      <li>• 12423 - Rajdhani Express</li>
+                      <li>• 12259 - Duronto Express</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'setup' && (
+              <div className="space-y-8">
+                <div>
+                  <h2 className="text-3xl font-bold text-gray-800 mb-6">Setup Instructions</h2>
+                  
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-300">
+                      <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Code className="w-7 h-7 text-green-600" />
+                        Backend Setup
+                      </h3>
+                      <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">
+                        {backendSetup}
+                      </pre>
+                    </div>
+
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border-2 border-blue-300">
+                      <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Globe className="w-7 h-7 text-blue-600" />
+                        Frontend Setup
+                      </h3>
+                      <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">
+                        {frontendSetup}
+                      </pre>
+                    </div>
+
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-300">
+                      <h3 className="text-2xl font-bold text-gray-800 mb-4">Fullstack Integration</h3>
+                      <div className="space-y-3 text-gray-700">
+                        <p><strong>1. Start Backend:</strong> Run backend server on port 5000</p>
+                        <p><strong>2. Update Frontend:</strong> In React app, update API calls to use <code className="bg-purple-100 px-2 py-1 rounded">http://localhost:5000</code></p>
+                        <p><strong>3. Start Frontend:</strong> Run React app on port 3000</p>
+                        <p><strong>4. Test:</strong> Open browser at <code className="bg-purple-100 px-2 py-1 rounded">http://localhost:3000</code></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 border-l-4 border-yellow-500 p-6 rounded-lg">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">Important Notes</h3>
+                  <ul className="space-y-2 text-gray-700">
+                    <li>• Change JWT_SECRET in production</li>
+                    <li>• Backend creates irctc.db automatically on first run</li>
+                    <li>• Sample trains are pre-loaded</li>
+                    <li>• Frontend-only version uses IndexedDB (no backend needed)</li>
+                    <li>• For production, use PostgreSQL/MySQL instead of SQLite</li>
+                  </ul>
+                </div>
+
+                <div className="bg-blue-50 border-l-4 border-blue-600 p-6 rounded-lg">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">Testing Credentials</h3>
+                  <p className="text-gray-700">Create a new account via signup, or use these test credentials after running the app:</p>
+                  <div className="mt-3 bg-white p-4 rounded border">
+                    <p className="font-mono text-sm"><strong>Email:</strong> test@irctc.com</p>
+                    <p className="font-mono text-sm"><strong>Password:</strong> password123</p>
+                    <p className="text-xs text-gray-600 mt-2">(Create this account via signup first)</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-8 bg-white rounded-xl shadow-lg p-6">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Technology Stack</h2>
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-3xl mb-2">⚛️</div>
+              <div className="font-bold">React 18</div>
+              <div className="text-sm text-gray-600">Frontend Framework</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-3xl mb-2">🟢</div>
+              <div className="font-bold">Node.js</div>
+              <div className="text-sm text-gray-600">Backend Runtime</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-3xl mb-2">🗄️</div>
+              <div className="font-bold">SQLite</div>
+              <div className="text-sm text-gray-600">Database</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-3xl mb-2">🔐</div>
+              <div className="font-bold">JWT</div>
+              <div className="text-sm text-gray-600">Authentication</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default FullstackDocs;
