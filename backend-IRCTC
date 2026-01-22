@@ -485,40 +485,6 @@ npm run dev
 
 Server runs on http://localhost:5000
 
-## API Endpoints
-
-### Authentication
-- POST /api/auth/signup - Register new user
-- POST /api/auth/login - Login user
-
-### User Profile
-- GET /api/user/profile - Get user profile
-- PUT /api/user/profile - Update user profile
-
-### Payment Methods
-- GET /api/payment-methods - Get all payment methods
-- POST /api/payment-methods - Add payment method
-- DELETE /api/payment-methods/:id - Delete payment method
-
-### Passengers
-- GET /api/passengers - Get passenger master list
-- POST /api/passengers - Add passenger
-- DELETE /api/passengers/:id - Delete passenger
-
-### Trains
-- GET /api/trains/search?source=&destination=&date= - Search trains
-- GET /api/trains/:id/availability?date=&class= - Check availability
-
-### Bookings
-- POST /api/bookings - Create booking
-- GET /api/bookings - Get user bookings
-- PUT /api/bookings/:id/cancel - Cancel booking
-
-### Admin
-- POST /api/admin/trains - Add new train route
-
-## Authentication
-
 All protected routes require JWT token in header:
 \`\`\`
 Authorization: Bearer <token>
